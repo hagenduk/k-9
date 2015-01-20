@@ -22,6 +22,7 @@ import android.widget.Toast;
 import com.fsck.k9.Account;
 import com.fsck.k9.K9;
 import com.fsck.k9.R;
+import com.fsck.k9.activity.ShowAttachmentActivity;
 import com.fsck.k9.controller.MessagingController;
 import com.fsck.k9.controller.MessagingListener;
 import com.fsck.k9.helper.MediaScannerNotifier;
@@ -32,12 +33,14 @@ import com.fsck.k9.mail.MessagingException;
 import com.fsck.k9.mail.Part;
 import com.fsck.k9.mail.internet.MimeHeader;
 import com.fsck.k9.mail.internet.MimeUtility;
+import com.fsck.k9.mail.store.LocalStore;
 import com.fsck.k9.mail.store.LocalStore.LocalAttachmentBodyPart;
 import com.fsck.k9.provider.AttachmentProvider;
 
 import org.apache.commons.io.IOUtils;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -145,6 +148,8 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
             try {
                 size = Integer.parseInt(sizeParam);
             } catch (NumberFormatException e) { /* ignore */ }
+        } else {
+            size = part.getSize();
         }
 
         contentType = MimeUtility.getMimeTypeForViewing(part.getMimeType(), name);
@@ -192,6 +197,7 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
 
     @Override
     public void onClick(View view) {
+        Log.i("AttachmentView - ", "onClick");
         switch (view.getId()) {
             case R.id.view: {
                 onViewButtonClicked();
@@ -225,6 +231,7 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
             icon = BitmapFactory.decodeStream(input);
             input.close();
         } catch (Exception e) {
+            Log.i("AttachmentView - ", "No preview icon");
             /*
              * We don't care what happened, we just return null for the preview icon.
              */
@@ -233,8 +240,42 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
     }
 
     private void onViewButtonClicked() {
-        if (mMessage != null) {
-            mController.loadAttachment(mAccount, mMessage, part, new Object[] { false, this }, mListener);
+        Log.i("AttachmentView - ", "onViewButtonClicked");
+        if (!(mMessage instanceof LocalStore.LocalMessage)) {
+            Log.i("AttachmentView - ", "It is a PGP/MIME message");
+            Log.i("AttachmentView - part.getAttachmentId()", String.valueOf(part.getAttachmentId()));
+            FileOutputStream fos = null;
+            FileInputStream fin = null;
+            try {
+                Log.i("AttachmentView - String", IOUtils.toString(part.getBody().getInputStream()));
+                File f = new File(mContext.getCacheDir(),"attachment" + part.getAttachmentId() + ".tmp");
+                fos = new FileOutputStream(f);
+                IOUtils.copy(part.getBody().getInputStream(), fos);
+
+                fin = new FileInputStream(f);
+                Log.i("AttachmentView - FILE : ", IOUtils.toString(fin));
+
+                Intent intent = new Intent(mContext, ShowAttachmentActivity.class);
+                Log.i("AttachmentView - contentype : ", part.getContentType());
+                Log.i("AttachmentView - getMimeType : ", part.getMimeType());
+                intent.setDataAndType(Uri.fromFile(f),  part.getMimeType());
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
+                mContext.startActivity(intent);
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    fos.close();
+                    fin.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        } else {
+            if (mMessage != null) {
+                Log.i("AttachmentView - ", "message is not null");
+                mController.loadAttachment(mAccount, mMessage, part, new Object[]{false, this}, mListener);
+            }
         }
     }
 
@@ -295,6 +336,7 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
 
 
     public void showFile() {
+        Log.i("AttachmentView - ", "showFile");
         Uri uri = AttachmentProvider.getAttachmentUriForViewing(mAccount, part.getAttachmentId());
         Intent intent = new Intent(Intent.ACTION_VIEW);
         // We explicitly set the ContentType in addition to the URI because some attachment viewers (such as Polaris office 3.0.x) choke on documents without a mime type
@@ -319,6 +361,7 @@ public class AttachmentView extends FrameLayout implements OnClickListener, OnLo
      * This method is safe to be called from the UI-thread.
      */
     public void checkViewable() {
+        Log.i("AttachmentView - ", "checkViewable");
         if (viewButton.getVisibility() == View.GONE) {
             // nothing to do
             return;

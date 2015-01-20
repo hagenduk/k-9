@@ -43,6 +43,7 @@ import com.fsck.k9.helper.Contacts;
 import com.fsck.k9.helper.HtmlConverter;
 import com.fsck.k9.helper.Utility;
 import com.fsck.k9.mail.Address;
+import com.fsck.k9.mail.BodyPart;
 import com.fsck.k9.mail.Flag;
 import com.fsck.k9.mail.Message;
 import com.fsck.k9.mail.MessagingException;
@@ -50,10 +51,10 @@ import com.fsck.k9.mail.Multipart;
 import com.fsck.k9.mail.Part;
 import com.fsck.k9.mail.internet.BinaryTempFileBody;
 import com.fsck.k9.mail.internet.MimeBodyPart;
+import com.fsck.k9.mail.internet.MimeHeader;
 import com.fsck.k9.mail.internet.MimeMessage;
 import com.fsck.k9.mail.internet.MimeMultipart;
 import com.fsck.k9.mail.internet.MimeUtility;
-import com.fsck.k9.mail.internet.TextBody;
 import com.fsck.k9.mail.store.LocalStore;
 import com.fsck.k9.mail.store.LocalStore.LocalMessage;
 import com.fsck.k9.provider.AttachmentProvider.AttachmentProviderColumns;
@@ -67,7 +68,6 @@ import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLDecoder;
-import java.util.Random;
 
 
 public class SingleMessageView extends LinearLayout implements OnClickListener,
@@ -115,6 +115,7 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
     private SavedState mSavedState;
     private ClipboardManager mClipboardManager;
     private String mText;
+    private boolean recursive;
 
     public void initialize(Fragment fragment) {
         Activity activity = fragment.getActivity();
@@ -519,11 +520,32 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
         Log.i("PGP/MIME Replace", "setMessage in SingleMessageView");
 
         String text = null;
+        MimeMessage mess = null;
+        boolean inline = false;
+        boolean mime = false;
+
         if (pgpData != null) {
             text = pgpData.getDecryptedData();
             if (text != null) {
-                text = HtmlConverter.textToHtml(text);
                 Log.i("setMessage Text after HtmlConverter: ", text);
+                try {
+                    mess = new MimeMessage(IOUtils.toInputStream(pgpData.getDecryptedData()));
+                    if (mess.getBody() instanceof MimeMultipart) {
+                        // PGP/MIME
+                        mime = true;
+                        MimeMultipart multi = (MimeMultipart) mess.getBody();
+                        MimeBodyPart bodyPart0 = (MimeBodyPart) multi.getBodyPart(0);
+                        BinaryTempFileBody tempFileBody = (BinaryTempFileBody) bodyPart0.getBody();
+                        text = IOUtils.toString(tempFileBody.getInputStream());
+                        tempFileBody.getInputStream().close();
+                    } else {
+                        // PGP/INLINE
+                        inline = true;
+                        text = HtmlConverter.textToHtml(text);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         }
 
@@ -536,225 +558,114 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
         // Save the text so we can reset the WebView when the user clicks the "Show pictures" button
         mText = text;
 
-        mHasAttachments = message.hasAttachments();
+        if (inline || mime) {
+            if (inline) {
+                mHasAttachments = message.hasAttachments();
+                if (mHasAttachments) {
+                    renderAttachments(message, 0, message, account, controller, listener);
+                }
+            } else {
+                mHasAttachments = mess.hasAttachments();
+                if (mHasAttachments) {
+                    MimeMultipart multi = (MimeMultipart) mess.getBody();
+                    if (multi.getCount() > 1) {
+                        Log.i("SinlgeViewMessage ", "The message has attachments!!!");
+                        for (int i = 1; i < multi.getCount(); i++) {
+                            try {
+                                BodyPart bodypart = multi.getBodyPart(i);
+                                LocalStore.LocalAttachmentBodyPart part = new LocalStore.LocalAttachmentBodyPart(bodypart.getBody(), i);
+                                Log.i("LocalAttachmentBodyPart.getBody() =  ", String.valueOf(part.getBody()));
 
-        if (mHasAttachments) {
-            renderAttachments(message, 0, message, account, controller, listener);
-        }
+                                String results[] = bodypart.getHeader(MimeHeader.HEADER_CONTENT_TYPE);
+                                if (results != null && results.length > 0){  part.setHeader(MimeHeader.HEADER_CONTENT_TYPE, results[0]);}
 
-        mHiddenAttachments.setVisibility(View.GONE);
+                                results = bodypart.getHeader(MimeHeader.HEADER_CONTENT_TRANSFER_ENCODING);
+                                if (results != null && results.length > 0){  part.setHeader(MimeHeader.HEADER_CONTENT_TRANSFER_ENCODING, results[0]);}
 
-        boolean lookForImages = true;
-        if (mSavedState != null) {
-            if (mSavedState.showPictures) {
-                setLoadPictures(true);
-                lookForImages = false;
+                                results = bodypart.getHeader(MimeHeader.HEADER_CONTENT_DISPOSITION);
+                                if (results != null && results.length > 0){
+                                    part.setHeader(MimeHeader.HEADER_CONTENT_DISPOSITION, results[0]);
+                                    part.setHeader(MimeHeader.HEADER_CONTENT_DISPOSITION, results[0]);
+                                }
+
+                                results= bodypart.getHeader(MimeHeader.HEADER_CONTENT_ID);
+                                if (results != null && results.length > 0){  part.setHeader(MimeHeader.HEADER_CONTENT_ID, results[0]);}
+
+                                Log.i("LocalAttachmentBodyPart.getAttachmentId() =  ", String.valueOf(part.getAttachmentId()));
+
+                                Log.i("LocalAttachmentBodyPart.getBody().getInputStream() =  ", String.valueOf(IOUtils.toString(part.getBody().getInputStream())));
+
+                                multi.removeBodyPart(i);
+                                multi.addBodyPart(part, i);
+
+                                AttachmentView view = (AttachmentView) mInflater.inflate(R.layout.message_view_attachment, null);
+                                view.setCallback(attachmentCallback);
+
+                                if (view.populateFromPart(part, mess, account, controller, listener)) {
+                                    addAttachment(view);
+                                } else {
+                                    addHiddenAttachment(view);
+                                }
+                            } catch (Exception e) {
+                                Log.e(K9.LOG_TAG, "Error adding attachment view", e);
+                            }
+                        }
+                    }
+                }
             }
 
-            if (mSavedState.attachmentViewVisible) {
-                onShowAttachments();
+            mHiddenAttachments.setVisibility(View.GONE);
+
+            boolean lookForImages = true;
+            if (mSavedState != null) {
+                if (mSavedState.showPictures) {
+                    setLoadPictures(true);
+                    lookForImages = false;
+                }
+
+                if (mSavedState.attachmentViewVisible) {
+                    onShowAttachments();
+                } else {
+                    onShowMessage();
+                }
+
+                if (mSavedState.hiddenAttachmentsVisible) {
+                    onShowHiddenAttachments();
+                }
+
+                mSavedState = null;
             } else {
                 onShowMessage();
             }
 
-            if (mSavedState.hiddenAttachmentsVisible) {
-                onShowHiddenAttachments();
-            }
-
-            mSavedState = null;
-        } else {
-            onShowMessage();
-        }
-
-        if (text != null && !mCryptoView.pIsMime() && lookForImages) {
-            // If the message contains external pictures and the "Show pictures"
-            // button wasn't already pressed, see if the user's preferences has us
-            // showing them anyway.
-            if (Utility.hasExternalImages(text) && !showPictures()) {
-                Address[] from = message.getFrom();
-                if ((account.getShowPictures() == Account.ShowPictures.ALWAYS) ||
-                        ((account.getShowPictures() == Account.ShowPictures.ONLY_FROM_CONTACTS) &&
-                                // Make sure we have at least one from address
-                                (from != null && from.length > 0) &&
-                                mContacts.isInContacts(from[0].getAddress()))) {
-                    setLoadPictures(true);
-                } else {
-                    showShowPicturesAction(true);
+            if (text != null && lookForImages) {
+                // If the message contains external pictures and the "Show pictures"
+                // button wasn't already pressed, see if the user's preferences has us
+                // showing them anyway.
+                if (Utility.hasExternalImages(text) && !showPictures()) {
+                    Address[] from = message.getFrom();
+                    if ((account.getShowPictures() == Account.ShowPictures.ALWAYS) ||
+                            ((account.getShowPictures() == Account.ShowPictures.ONLY_FROM_CONTACTS) &&
+                                    (from != null && from.length > 0) &&
+                                    mContacts.isInContacts(from[0].getAddress()))) {
+                        setLoadPictures(true);
+                    } else {
+                        showShowPicturesAction(true);
+                    }
                 }
             }
         }
 
         if (text != null) {
-            Log.i("SingleMessageView", "loadBodyFromText.... " + text);
-            if ((pgpData != null) && (pgpData.getDecryptedData() != null) && (mCryptoView.pIsMime())) {
-                Log.i("SingleMessageView", "pgp/mime trying to replace the local message");
-                mCryptoView.setIsMime(false);
-
-//                    MessageReference tempMessageRef = new MessageReference();
-//                    tempMessageRef.accountUuid = account.getUuid();
-//                    tempMessageRef.folderName = account.getInboxFolderName();
-//                    tempMessageRef.uid = "16";
-
-///////////////////////////////////////////////////////  With LocalMessage Replace/////////////////////////
-//                    LocalMessage mm = message.clone();
-//                    mm.setReferences(tempMessageRef.toIdentityString());
-//                    Log.i("SingleMessageView pgpData.getDecryptedData() : ", pgpData.getDecryptedData());
-//                    TextBody newPart = new TextBody(MimeUtility.getTextFromPart(((MimeMultipart)message.getBody()).getBodyPart(0)));
-//                    mm.setBody(newPart);
-//
-//                    mm.setSubject("TempMessage[" + message.getSubject() + "]");
-//
-//                    ArrayList<Message> l = new ArrayList<Message>();
-//                    l.add(mm);
-//
-//                    Folder folder = account.getLocalStore().getFolder(tempMessageRef.folderName);
-//                    folder.appendMessages(l.toArray(new Message[1]));
-//
-//
-//
-//                    setMessage(account, mm, null, controller, listener);
-
-                ///////////////////////////////////////////////////////  With Temporary MimeMessage Replace/////////////////////////
-                String theString = "Mistake by reading of a temporary file";
-
-                MimeMessage mess = null;
-                try {
-                    mess = new MimeMessage(IOUtils.toInputStream(pgpData.getDecryptedData()));
-                    MimeMultipart multi = (MimeMultipart) mess.getBody();
-
-
-                    MimeBodyPart bodyPart0 = (MimeBodyPart) multi.getBodyPart(0);
-                    BinaryTempFileBody tempFileBody = (BinaryTempFileBody) bodyPart0.getBody();
-                    theString = IOUtils.toString(tempFileBody.getInputStream());
-                    tempFileBody.getInputStream().close();
-                    Log.i("pgpData.getDecryptedData()!!!!!!!!!!!!!!!!!!!!!!!!!!! =  ", pgpData.getDecryptedData());
-                    Log.i("theString!!!!!!!!!!!!!!!!!!!!!!!!!!! =  ", theString);
-
-                    Log.i("SinlgeViewMessage has attachments? ", String.valueOf(mess.hasAttachments()));
-                    Log.i("SinlgeViewMessage multi has parts =  ", String.valueOf(multi.getCount()));
-//                    if (multi.getCount() > 1) {
-//                        Log.i("SinlgeViewMessage ", "The message has attachments!!!");
-//                        for (int i = 1; i < multi.getCount(); i++) {
-//                            Random rnd = new Random();
-//                            TextBody tBody = new TextBody(IOUtils.toString(multi.getBodyPart(i).getBody().getInputStream()));
-//                            Log.i("LocalAttachmentBodyPart.getBody()getInputStream =  ", tBody.getText());
-//
-//                            LocalStore.LocalAttachmentBodyPart part = new LocalStore.LocalAttachmentBodyPart(tBody, rnd.nextLong());
-//
-//                            Log.i("LocalAttachmentBodyPart.getBody() =  ", String.valueOf(part.getBody()));
-//
-//
-//                            AttachmentView view = (AttachmentView) mInflater.inflate(R.layout.message_view_attachment, null);
-//                            view.setCallback(attachmentCallback);
-//
-//                            try {
-//                                if (view.populateFromPart(part, mess, account, controller, listener)) {
-//                                    addAttachment(view);
-//                                } else {
-//                                    addHiddenAttachment(view);
-//                                }
-//                            } catch (Exception e) {
-//                                Log.e(K9.LOG_TAG, "Error adding attachment view", e);
-//                            }
-//                        }
-//                    }//
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
-
-//                mess.setFrom(message.getFrom()[0]);
-//                mess.setRecipient(Message.RecipientType.TO, message.getRecipients(Message.RecipientType.TO)[0]);
-//                mess.setSubject("TempMessage[" + message.getSubject() + "]");
-//                for (String header : message.getHeaderNames()) {
-//                    mess.setHeader(header, message.getHeader(header)[0]);
-//                }
-//
-//                      mess.setReferences(tempMessageRef.toIdentityString());
-//
-//                      ArrayList<Message> l = new ArrayList<Message>();
-//                        l.add(mess);
-//
-//
-//                        Folder folder = account.getLocalStore().getFolder(account.getInboxFolderName());
-//                        folder.appendMessages(l.toArray(new Message[1]));
-
-
-                // TextBody textBody = (TextBody) bodyPart0.getBody();
-
-                ///  Go deep into attachments in localstore
-//                     Log.i("LocaMessage Body  ", message.getBody().toString());
-//
-//
-//                        if (message.getBody() instanceof MimeMultipart){
-//                            MimeMultipart multi = (MimeMultipart) message.getBody();
-//                            Log.i("LocaMessage Parts =  ", String.valueOf(multi.getCount()));
-//                            LocalStore.LocalAttachmentBodyPart bodyPart0 = (LocalStore.LocalAttachmentBodyPart) multi.getBodyPart(1);
-//                            LocalStore.LocalAttachmentBody body = (LocalStore.LocalAttachmentBody) bodyPart0.getBody();
-//                            Log.i("LocaMessage Part0 ", String.valueOf(bodyPart0.getAttachmentId()));
-//                            Log.i("LocaMessage Part0 ", String.valueOf(body.getContentUri()));
-//
-//                            try {
-//                                String theString = IOUtils.toString(body.getInputStream());
-//                                Log.i("theString ", theString);
-//                            } catch (IOException e) {
-//                                e.printStackTrace();
-//                            }
-//                        }
-
-//                loadBodyFromText(pgpData.getDecryptedData());
-                loadBodyFromText(theString);
-                updateCryptoLayout(account.getCryptoProvider(), pgpData, mess);
-                mOpenPgpView.updateLayout(account, pgpData.getDecryptedData(),
-                        pgpData.getSignatureResult(), mess);
-            } else {
-                Log.i("SingleMessageView", "loading text, update cryptoLayout and pgpView");
-                loadBodyFromText(text);
-                updateCryptoLayout(account.getCryptoProvider(), pgpData, message);
-                mOpenPgpView.updateLayout(account, pgpData.getDecryptedData(),
-                        pgpData.getSignatureResult(), message);
-            }
+            loadBodyFromText(text);
+            //  MimeUtility.ViewableContainer container = MimeUtility.extractTextAndAttachments(getContext(), message);
+            //  Log.i("PGP/MIME Replace - container : ", container.text);
+            updateCryptoLayout(account.getCryptoProvider(), pgpData, message);
+            mOpenPgpView.updateLayout(account, pgpData.getDecryptedData(),
+                    pgpData.getSignatureResult(), message);
         } else {
-            Log.i("SingleMessageView", "showingStatusMessage.... ");
             showStatusMessage(getContext().getString(R.string.webview_empty_message));
         }
-
-//        if (text != null) {
-//            Log.i("PGP/MIME Replace - Text: ", text);
-//            if((pgpData.getDecryptedData()!=null) && (mCryptoView.pIsMime())){
-//                    message.replaceBody(pgpData.getDecryptedData());
-//                    text = message.getTextForDisplay();
-//                    MimeMessage msg = null;
-//                    try {
-//                        msg = new MimeMessage(new ByteArrayInputStream(pgpData.getDecryptedData().getBytes()));
-//                    } catch (IOException e) {
-//                        // TODO Auto-generated catch block
-//                        e.printStackTrace();
-//                    }
-//                    //TODO: This cast from MimeMessage to LocalMessage throws an error it needs to be fixed
-//                    //get current folder
-//                        LocalStore ls = account.getLocalStore();
-//                        ArrayList<Message> l = new ArrayList<Message>();
-//                        if(msg.getUid() == null ){
-//                            msg.setUid("777");
-//                        }
-//                        l.add(msg);
-//                        HashMap<String, String> map = (HashMap<String, String>) ls.getFolderById(10).appendMessages(l.toArray(new Message[1]));
-//                        Log.i("SingleMessageView - mapSize: ", String.valueOf(map.size()));
-//                        for (String key : map.keySet()){
-//                            Log.i("SingleMessageView - Key: ", key);
-//                        }
-//                    mCryptoView.setIsMime(false);
-//                    setMessage(account, message, pgpData, controller, listener);
-//                }else {
-//                    loadBodyFromText(text);
-//                    updateCryptoLayout(account.getCryptoProvider(), pgpData, message);
-//                    mOpenPgpView.updateLayout(account, pgpData.getDecryptedData(),
-//                            pgpData.getSignatureResult(), message);
-//                }
-//        } else {
-//            showStatusMessage(getContext().getString(R.string.webview_empty_message));
-//        }
     }
 
     public void showStatusMessage(String status) {

@@ -650,6 +650,10 @@ public class MimeMessage extends Message {
     }
 
     public boolean hasAttachments() {
+        if (this.getBody() instanceof  MimeMultipart) {
+            MimeMultipart multi = (MimeMultipart) this.getBody();
+            if (multi.getCount() > 1) return true;
+        }
         return false;
     }
 

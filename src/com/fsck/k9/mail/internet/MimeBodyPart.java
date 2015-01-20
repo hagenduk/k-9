@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.Locale;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.james.mime4j.util.MimeUtil;
 
 /**
@@ -126,6 +127,18 @@ public class MimeBodyPart extends BodyPart {
     }
 
     public int getSize() {
+        if (mSize != 0) return mSize;
+
+        //PGP/MIME Getting a size of BinaryTempFileBody
+        if (mBody instanceof BinaryTempFileBody) {
+            try {
+                BinaryTempFileBody tempFileBody = (BinaryTempFileBody) mBody;
+                mSize = IOUtils.toByteArray(tempFileBody.getInputStream()).length;
+            } catch (Exception e) {
+                mSize = 0;
+                e.printStackTrace();
+            }
+        }
         return mSize;
     }
 
