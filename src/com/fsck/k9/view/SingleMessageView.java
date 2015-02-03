@@ -517,8 +517,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
                            MessagingController controller, MessagingListener listener) throws MessagingException {
         resetView();
 
-        Log.i("PGP/MIME Replace", "setMessage in SingleMessageView");
-
         String text = null;
         MimeMessage mess = null;
         boolean inline = false;
@@ -527,7 +525,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
         if (pgpData != null) {
             text = pgpData.getDecryptedData();
             if (text != null) {
-                Log.i("setMessage Text after HtmlConverter: ", text);
                 try {
                     mess = new MimeMessage(IOUtils.toInputStream(pgpData.getDecryptedData()));
                     if (mess.getBody() instanceof MimeMultipart) {
@@ -550,7 +547,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
         }
 
         if (text == null) {
-            Log.i("PGP/MIME View", "SingleMessage entry point");
             text = message.getTextForDisplay();
             mCryptoView.setmPGPMIMEText(text);
         }
@@ -574,7 +570,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
                             try {
                                 BodyPart bodypart = multi.getBodyPart(i);
                                 LocalStore.LocalAttachmentBodyPart part = new LocalStore.LocalAttachmentBodyPart(bodypart.getBody(), i);
-                                Log.i("LocalAttachmentBodyPart.getBody() =  ", String.valueOf(part.getBody()));
 
                                 String results[] = bodypart.getHeader(MimeHeader.HEADER_CONTENT_TYPE);
                                 if (results != null && results.length > 0){  part.setHeader(MimeHeader.HEADER_CONTENT_TYPE, results[0]);}
@@ -590,10 +585,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
 
                                 results= bodypart.getHeader(MimeHeader.HEADER_CONTENT_ID);
                                 if (results != null && results.length > 0){  part.setHeader(MimeHeader.HEADER_CONTENT_ID, results[0]);}
-
-                                Log.i("LocalAttachmentBodyPart.getAttachmentId() =  ", String.valueOf(part.getAttachmentId()));
-
-                                Log.i("LocalAttachmentBodyPart.getBody().getInputStream() =  ", String.valueOf(IOUtils.toString(part.getBody().getInputStream())));
 
                                 multi.removeBodyPart(i);
                                 multi.addBodyPart(part, i);
@@ -658,8 +649,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
 
         if (text != null) {
             loadBodyFromText(text);
-            //  MimeUtility.ViewableContainer container = MimeUtility.extractTextAndAttachments(getContext(), message);
-            //  Log.i("PGP/MIME Replace - container : ", container.text);
             updateCryptoLayout(account.getCryptoProvider(), pgpData, message);
             mOpenPgpView.updateLayout(account, pgpData.getDecryptedData(),
                     pgpData.getSignatureResult(), message);
@@ -679,7 +668,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
     }
 
     public void updateCryptoLayout(CryptoProvider cp, PgpData pgpData, Message message) {
-        Log.i("PGP/MIME Replace", "updateCryptoLayout in SingleMessageView");
         mCryptoView.updateLayout(cp, pgpData, message);
     }
 
@@ -710,7 +698,6 @@ public class SingleMessageView extends LinearLayout implements OnClickListener,
 
     public void renderAttachments(Part part, int depth, Message message, Account account,
                                   MessagingController controller, MessagingListener listener) throws MessagingException {
-        Log.i("Rendering Attachments part is ", String.valueOf(part.getClass()));
         if (part.getBody() instanceof Multipart) {
             Multipart mp = (Multipart) part.getBody();
             for (int i = 0; i < mp.getCount(); i++) {

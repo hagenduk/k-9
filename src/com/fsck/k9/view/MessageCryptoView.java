@@ -77,15 +77,6 @@ public class MessageCryptoView extends LinearLayout {
      * they should be visible.
      */
     public void updateLayout(final CryptoProvider cryptoProvider, final PgpData pgpData, final Message message) {
-
-    	if(pgpData.getDecryptedData()!=null){
-            Log.i("PGP/MIME Replace", "Here°_° ... " + pgpData.getDecryptedData());
-    	}
-    	else{
-
-            Log.i("PGP/MIME Replace", "not yet");
-    	}
-    	
         Log.i("PGP/MIME Replace", "updateLAyout in MessageCryptoView");
         if (pgpData.getSignatureKeyId() != 0) {
             mCryptoSignatureUserIdRest.setText(
@@ -145,9 +136,7 @@ public class MessageCryptoView extends LinearLayout {
                     //PGP/MIME part
                     else{
                     	Log.i("PGP/MIME VIEW", "going pgp");
-                    	//Part pgp = MimeUtility.findFirstPartByMimeType(message, "application/pgp-encrypted");
                     	data = mPGPMIMEText;
-                    	Log.i("PGP/MIME VIEW", "content: " + data);
                     }
                     cryptoProvider.decrypt(mFragment, data, pgpData);
                 } catch (MessagingException me) {
@@ -172,7 +161,7 @@ public class MessageCryptoView extends LinearLayout {
                 if (pgp != null) {
                 	isMime=true;
                 	//somehow the error message is not displayed when opening an PGP/MIME mail
-                    Toast.makeText(mContext, R.string.pgp_mime_unsupported, Toast.LENGTH_LONG).show();
+                    //Toast.makeText(mContext, R.string.pgp_mime_unsupported, Toast.LENGTH_LONG).show();
                     this.setVisibility(View.VISIBLE);
                 }
             } catch (MessagingException e) {

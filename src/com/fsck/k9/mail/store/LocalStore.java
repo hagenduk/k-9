@@ -4043,19 +4043,13 @@ public class LocalStore extends Store implements Serializable {
             	@Override
                 public String doDbWork(final SQLiteDatabase db) {
                 	String[] args = {mUid};
-                	Log.i("PGP/MIME Attachments", "ID is: " + mUid);
-                	//get the content from Attachment database
-                	//Cursor contents = db.rawQuery("SELECT store_data FROM attachments WHERE message_id=?", args);
-                	//get the correct message id
                 	Cursor contents = db.rawQuery("SELECT id FROM messages where uid=?", args);
                 	contents.moveToFirst();
                 	String messageid = contents.getInt(0) + "";
-                	Log.i("PGP/MIME Attachments", "Message id is: " + messageid);
                 	String[] args2 = {messageid};
                 	//get the correct attachments;
                     contents.close();
                 	contents = db.rawQuery("SELECT store_data, content_uri, name, mime_type, content_id, content_disposition FROM attachments WHERE message_id=?", args2);
-                	Log.i("PGP/MIME Attachments", "columns: " + contents.getColumnCount()+ " rows: " + contents.getCount());
                 	String attachmentUri ="";
                 	//the second attachment is the encrypted mail
                 	if(contents.moveToLast()){
@@ -4075,7 +4069,6 @@ public class LocalStore extends Store implements Serializable {
         		//make sure to remove useless parts to work
         		attachmentUri.replace("content://com.fsck.k9.attachmentprovider/", "");
         		Uri uri = Uri.parse(attachmentUri);
-        		Log.i("PGP/MIME Attachment", "uri is: " + uri );
         		try {
         			InputStream is = mApplication.getApplicationContext().getContentResolver().openInputStream(uri);
         			BufferedReader r = new BufferedReader(new InputStreamReader(is));
@@ -4090,7 +4083,6 @@ public class LocalStore extends Store implements Serializable {
         			returnText= total.toString();
         			r.close();
         			is.close();
-        			Log.i("PGP/MIME Attachment", "content is: " + total );
         		} catch (FileNotFoundException e) {
 					Log.e("PGP/MIME Attachment", "The file could not be opened.");
 					e.printStackTrace();
